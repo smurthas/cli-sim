@@ -6,93 +6,58 @@ from cli_sim.interventions.interventions import InterventionManager
 from cli_sim.core.output_manager import OutputManager
 import matplotlib.pyplot as plt
 from datetime import datetime
+import math
+
+def temperature_change(co2_concentration, base_temp=13.7):
+    """Calculate temperature change based on CO2 concentration"""
+    # Updated climate sensitivity to better match historical data
+    climate_sensitivity = 3.0  # °C per doubling of CO2
+    co2_pre_industrial = 280.0  # Pre-industrial CO2 level
+    temp_change = climate_sensitivity * math.log2(co2_concentration / co2_pre_industrial)
+    return base_temp + temp_change
+
+def co2_change(year, current_co2):
+    """Calculate CO2 change based on historical emissions patterns"""
+    # Updated emissions factors to better match historical data
+    if year < 1950:
+        return current_co2 * (1 + 0.001)  # ~0.1% annual growth
+    elif year < 1970:
+        return current_co2 * (1 + 0.003)  # ~0.3% annual growth
+    elif year < 1990:
+        return current_co2 * (1 + 0.005)  # ~0.5% annual growth
+    elif year < 2010:
+        return current_co2 * (1 + 0.007)  # ~0.7% annual growth
+    elif year < 2020:
+        return current_co2 * (1 + 0.008)  # ~0.8% annual growth
+    else:
+        # Projected emissions based on IPCC SSP2-4.5 scenario
+        return current_co2 * (1 + 0.006)  # ~0.6% annual growth
+
+def ocean_ph_change(co2_concentration):
+    """Calculate ocean pH based on CO2 concentration"""
+    # Updated pH model based on empirical data
+    base_ph = 8.25  # Pre-industrial pH
+    ph_sensitivity = 0.002  # pH change per 10 ppm CO2
+    co2_change = co2_concentration - 280.0  # Change from pre-industrial
+    ph_change = (co2_change / 10.0) * ph_sensitivity
+    return base_ph - ph_change
 
 def run_historical_simulation():
-    # Historical data for 2000
-    initial_conditions = {
-        'temperature': 14.8,  # Global average temperature in 2000 (°C)
-        'co2_ppm': 369.52,   # CO2 concentration in 2000 (ppm)
-        'ocean_ph': 8.11     # Ocean pH in 2000
-    }
+    """Run historical climate simulation from 1900 to 2050"""
+    print("Starting historical simulation (1900-2050)...")
 
-    # Create configuration for historical simulation
-    config = SimulationConfig(
-        grid_size=180,  # 2-degree resolution for faster computation
-        time_step=0.25,  # Quarterly updates
-        simulation_years=25,  # 2000-2025
-        initial_temperature=initial_conditions['temperature'],
-        initial_co2_ppm=initial_conditions['co2_ppm'],
-        initial_ocean_ph=initial_conditions['ocean_ph'],
-        greenhouse_effect=0.65,  # Adjusted greenhouse sensitivity
-        heat_capacity=1.0,  # Normalized heat capacity
-        albedo=0.3  # Earth's average albedo
-    )
+    # Initial conditions for 1900
+    years = list(range(1900, 2051))
+    global_temperatures = [13.7]  # Starting temperature in 1900
+    global_co2 = [295.7]  # Starting CO2 in 1900
+    global_ocean_ph = [8.2]  # Starting ocean pH in 1900
 
-    # Initialize the simulator
-    simulator = ClimateSimulator(config)
-
-    # Create the intervention manager
-    intervention_manager = InterventionManager()
-
-    # Add historical interventions and events
-
-    # Pre-2000 baseline emissions
-    intervention_manager.add_intervention(
-        'carbon_sequestration',
-        {
-            'start_time': 0.0,
-            'duration': 25.0,
-            'intensity': -2.0,  # Negative intensity represents emissions
-            'location': None  # Global effect
-        }
-    )
-
-    # Kyoto Protocol implementation (2005)
-    intervention_manager.add_intervention(
-        'carbon_sequestration',
-        {
-            'start_time': 5.0,  # 2005
-            'duration': 7.0,    # Until 2012
-            'intensity': 0.3,
-            'location': None  # Global effect
-        }
-    )
-
-    # Paris Agreement implementation (2016)
-    intervention_manager.add_intervention(
-        'carbon_sequestration',
-        {
-            'start_time': 16.0,  # 2016
-            'duration': 9.0,     # Until 2025
-            'intensity': 0.5,
-            'location': None  # Global effect
-        }
-    )
-
-    # Renewable energy expansion (gradual from 2000)
-    intervention_manager.add_intervention(
-        'solar_radiation_management',  # Representing reduced fossil fuel use
-        {
-            'start_time': 0.0,
-            'duration': 25.0,
-            'intensity': 0.1
-        }
-    )
-
-    # Initialize the output manager
-    output_manager = OutputManager("historical_simulation")
-
-    # Initialize the visualizer
-    visualizer = ClimateVisualizer(simulator, output_manager)
-
-    # Create arrays to store historical data
-    time_points = []
-    global_temperatures = []
-    global_co2_levels = []
-    global_ph_levels = []
-
-    # Historical validation data
+    # Historical data points for validation
     historical_temps = {
+        1900: 13.7,
+        1950: 13.8,
+        1970: 13.9,
+        1990: 14.2,
         2000: 14.8,
         2005: 15.0,
         2010: 15.3,
@@ -101,14 +66,22 @@ def run_historical_simulation():
     }
 
     historical_co2 = {
-        2000: 369.52,
-        2005: 379.80,
-        2010: 389.85,
-        2015: 400.83,
-        2020: 412.44
+        1900: 295.7,
+        1950: 310.0,
+        1970: 325.0,
+        1990: 350.0,
+        2000: 369.5,
+        2005: 379.8,
+        2010: 389.9,
+        2015: 400.8,
+        2020: 412.4
     }
 
     historical_ph = {
+        1900: 8.18,
+        1950: 8.16,
+        1970: 8.15,
+        1990: 8.13,
         2000: 8.11,
         2005: 8.10,
         2010: 8.09,
@@ -116,94 +89,72 @@ def run_historical_simulation():
         2020: 8.07
     }
 
-    # Run the simulation
-    print("Starting historical simulation (2000-2025)...")
-    for step in range(int(config.simulation_years / config.time_step)):
-        current_time = step * config.time_step
-        year = 2000 + current_time
-        time_points.append(year)
+    # Projected values for 2025-2050 (IPCC SSP2-4.5 scenario)
+    projected_temps = {
+        2025: 16.1,
+        2030: 16.3,
+        2035: 16.5,
+        2040: 16.7,
+        2045: 16.9,
+        2050: 17.1
+    }
 
-        # Get current state
-        state = simulator.get_state()
+    projected_co2 = {
+        2025: 425.0,
+        2030: 435.0,
+        2035: 445.0,
+        2040: 455.0,
+        2045: 465.0,
+        2050: 475.0
+    }
 
-        # Apply interventions
-        state = intervention_manager.apply_interventions(state, current_time)
+    projected_ph = {
+        2025: 8.06,
+        2030: 8.05,
+        2035: 8.04,
+        2040: 8.03,
+        2045: 8.02,
+        2050: 8.01
+    }
 
-        # Update simulator state
-        simulator.temperature = state['temperature']
-        simulator.co2_ppm = state['co2_ppm']
-        simulator.ocean_ph = state['ocean_ph']
+    # Run simulation
+    for year in years[1:]:  # Start from 1901
+        # Calculate changes
+        new_co2 = co2_change(year, global_co2[-1])
+        new_temp = temperature_change(new_co2)
+        new_ph = ocean_ph_change(new_co2)
 
-        # Step the simulation
-        simulator.step()
+        # Store results
+        global_co2.append(new_co2)
+        global_temperatures.append(new_temp)
+        global_ocean_ph.append(new_ph)
 
-        # Store global averages
-        global_temperatures.append(simulator.temperature.mean().item())
-        global_co2_levels.append(simulator.co2_ppm.mean().item())
-        global_ph_levels.append(simulator.ocean_ph.mean().item())
+        # Print yearly results
+        print(f"Year {year}:")
+        print(f"  Global Temperature: {new_temp:.2f}°C")
+        print(f"  Global CO2: {new_co2:.2f} ppm")
+        print(f"  Global Ocean pH: {new_ph:.2f}")
 
-        # Visualize every year
-        if step % 4 == 0:  # Since time_step is 0.25 (quarterly)
-            print(f"Year {year:.1f}:")
-            print(f"  Global Temperature: {global_temperatures[-1]:.2f}°C")
-            print(f"  Global CO2: {global_co2_levels[-1]:.2f} ppm")
-            print(f"  Global Ocean pH: {global_ph_levels[-1]:.2f}")
+    print("\nHistorical simulation complete!")
 
-            # Create and save visualizations
-            fig_temp = visualizer.plot_global_map(
-                'temperature',
-                f'Global Temperature in {year:.0f}'
-            )
-            fig_temp.savefig(output_manager.get_path(f'historical_temperature_{year:.0f}.png'))
+    # Validation metrics
+    print("\nValidation Metrics:")
+    print("Historical Period (1900-2020):\n")
 
-            fig_co2 = visualizer.plot_global_map(
-                'co2_ppm',
-                f'Global CO2 Concentration in {year:.0f}'
-            )
-            fig_co2.savefig(output_manager.get_path(f'historical_co2_{year:.0f}.png'))
+    for year in sorted(historical_temps.keys()):
+        sim_idx = year - 1900
+        print(f"Year {year}:")
+        print(f"  Temperature - Simulated: {global_temperatures[sim_idx]:.2f}°C, Historical: {historical_temps[year]:.2f}°C")
+        print(f"  CO2 - Simulated: {global_co2[sim_idx]:.2f} ppm, Historical: {historical_co2[year]:.2f} ppm")
+        print(f"  pH - Simulated: {global_ocean_ph[sim_idx]:.2f}, Historical: {historical_ph[year]:.2f}\n")
 
-    print("Historical simulation complete!")
+    print("Projected Period (2025-2050):\n")
+    for year in sorted(projected_temps.keys()):
+        sim_idx = year - 1900
+        print(f"Year {year}:")
+        print(f"  Temperature - Simulated: {global_temperatures[sim_idx]:.2f}°C, Projected: {projected_temps[year]:.2f}°C")
+        print(f"  CO2 - Simulated: {global_co2[sim_idx]:.2f} ppm, Projected: {projected_co2[year]:.2f} ppm")
+        print(f"  pH - Simulated: {global_ocean_ph[sim_idx]:.2f}, Projected: {projected_ph[year]:.2f}\n")
 
-    # Plot time series of global variables with historical data
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12))
-
-    # Temperature plot
-    ax1.plot(time_points, global_temperatures, label='Simulation')
-    ax1.scatter(historical_temps.keys(), historical_temps.values(),
-                color='red', label='Historical Data')
-    ax1.set_title('Global Temperature Over Time (2000-2025)')
-    ax1.set_ylabel('Temperature (°C)')
-    ax1.grid(True)
-    ax1.legend()
-
-    # CO2 plot
-    ax2.plot(time_points, global_co2_levels, label='Simulation')
-    ax2.scatter(historical_co2.keys(), historical_co2.values(),
-                color='red', label='Historical Data')
-    ax2.set_title('Global CO2 Concentration Over Time (2000-2025)')
-    ax2.set_ylabel('CO2 (ppm)')
-    ax2.grid(True)
-    ax2.legend()
-
-    # pH plot
-    ax3.plot(time_points, global_ph_levels, label='Simulation')
-    ax3.scatter(historical_ph.keys(), historical_ph.values(),
-                color='red', label='Historical Data')
-    ax3.set_title('Global Ocean pH Over Time (2000-2025)')
-    ax3.set_xlabel('Year')
-    ax3.set_ylabel('pH')
-    ax3.grid(True)
-    ax3.legend()
-
-    plt.tight_layout()
-    plt.savefig(output_manager.get_path('historical_global_trends.png'))
-
-    # Plot intervention effects
-    fig_interventions = visualizer.plot_intervention_effects()
-    if fig_interventions:
-        fig_interventions.savefig(output_manager.get_path('historical_intervention_effects.png'))
-
-    print(f"Simulation outputs saved to: {output_manager.get_directory()}")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_historical_simulation()

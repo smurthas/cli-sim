@@ -1,9 +1,12 @@
 import torch
 import numpy as np
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 from dataclasses import dataclass
 import yaml
 import platform
+from datetime import datetime
+from .intervention import Intervention
+import os
 
 @dataclass
 class PlanetConfig:
@@ -117,165 +120,201 @@ class PlanetConfig:
 
 @dataclass
 class SimulationConfig:
-    """Configuration for the climate simulation."""
-    planet: PlanetConfig
-    grid_size: int = 360  # 1-degree resolution
-    time_step: float = 1.0  # years
-    simulation_years: int = 100
-    device: str = "mps" if platform.system() == "Darwin" and torch.backends.mps.is_available() else "cpu"
-
-    # Initial conditions
-    initial_temperature: float = 15.0  # Celsius
-    initial_co2_ppm: float = 400.0
-    initial_ocean_ph: float = 8.1
-
-    # Model parameters
-    heat_capacity: float = 1.0
-    albedo: float = 0.3
-    greenhouse_effect: float = 0.8
+    """Configuration for climate simulation."""
+    grid_size: int
+    time_step: float
+    simulation_years: int
+    initial_temperature: float
+    initial_co2_ppm: float
+    initial_ocean_ph: float
+    heat_capacity: float
+    albedo: float
+    greenhouse_effect: float
 
 class ClimateSimulator:
-    def __init__(self, config: Optional[SimulationConfig] = None):
-        """Initialize the climate simulator."""
-        self.config = config or SimulationConfig(planet=PlanetConfig.earth())
-        self.device = torch.device(self.config.device)
-        self.year = 0  # Track simulation year
+    """Simulates climate change over time with interventions."""
+
+    def __init__(self, config):
+        self.grid_size = config.grid_size
+        self.time_step = config.time_step
+        self.simulation_years = config.simulation_years
+        self.year = 1900  # Start year for historical simulation
 
         # Initialize state tensors
-        self.temperature = torch.full(
-            (self.config.grid_size, self.config.grid_size),
-            self.config.planet.initial_surface_temp_celsius,
-            device=self.device
-        )
-        self.greenhouse_gas = torch.full(
-            (self.config.grid_size, self.config.grid_size),
-            self.config.planet.initial_greenhouse_gas_ppm,
-            device=self.device
-        )
-        self.pressure = torch.full(
-            (self.config.grid_size, self.config.grid_size),
-            self.config.planet.initial_atmospheric_pressure_kpa,
-            device=self.device
-        )
+        self.temperature = torch.full((self.grid_size, self.grid_size), config.initial_temperature)
+        self.co2 = torch.full((self.grid_size, self.grid_size), config.initial_co2_ppm)
+        self.ocean_ph = torch.full((self.grid_size, self.grid_size), config.initial_ocean_ph)
 
         # Initialize intervention effects
-        self.interventions: List[Dict] = []
+        self.intervention_effects = {
+            'temperature': torch.zeros((self.grid_size, self.grid_size)),
+            'co2': torch.zeros((self.grid_size, self.grid_size)),
+            'ocean_ph': torch.zeros((self.grid_size, self.grid_size))
+        }
 
-    def add_intervention(self, intervention_type: str, parameters: Dict):
-        """Add a climate intervention to the simulation."""
-        self.interventions.append({
-            "type": intervention_type,
-            "parameters": parameters,
-            "start_time": len(self.interventions)  # Simple sequential timing
-        })
-
-    def step(self):
-        """Perform one simulation step."""
-        # Update temperature based on current state and interventions
-        temp_change = self._calculate_temperature_change()
-        self.temperature += temp_change
-
-        # Update greenhouse gas levels
-        gas_change = self._calculate_greenhouse_gas_change()
-        self.greenhouse_gas += gas_change
-
-        # Increment year
-        self.year += self.config.time_step
-
-    def _calculate_temperature_change(self) -> torch.Tensor:
-        """Calculate temperature change for the current step."""
-        # Constants for temperature response to greenhouse gas
-        climate_sensitivity = 4.0  # °C per doubling of primary greenhouse gas
-        reference_gas = self.config.planet.reference_greenhouse_gas_ppm
-
-        # Calculate radiative forcing
-        solar_input = (1 - self.config.planet.albedo) * self.config.planet.solar_irradiance_wm2 / 4
-        greenhouse_forcing = climate_sensitivity * torch.log2(self.greenhouse_gas / reference_gas)
-
-        # Calculate target temperature based on energy balance
-        target_temp = (
-            self.config.planet.reference_temp_celsius +
-            greenhouse_forcing * self.config.planet.greenhouse_effect_coefficient
-        )
-
-        # Temperature tendency towards equilibrium
-        temp_difference = target_temp - self.temperature
-        relaxation_time = 15.0 * self.config.planet.atmospheric_heat_capacity
-
-        # Temperature change from relaxation
-        temp_change = temp_difference / relaxation_time
-
-        # Add natural variability (scaled by atmospheric mass)
-        variability_scale = 0.03 * (self.config.planet.atmospheric_mass_kg / 5.15e18)**0.5
-        natural_variability = torch.randn_like(self.temperature) * variability_scale
-
-        return torch.clamp(
-            temp_change * self.config.time_step + natural_variability,
-            min=-0.5,
-            max=0.5
-        )
-
-    def _calculate_greenhouse_gas_change(self) -> torch.Tensor:
-        """Calculate greenhouse gas concentration change for the current step."""
-        # Natural removal rate (scaled by gravity and atmospheric mass)
-        removal_rate = 0.003 * (self.config.planet.gravity_ms2 / 9.81)
-        natural_removal = removal_rate * (self.greenhouse_gas - self.config.planet.reference_greenhouse_gas_ppm)
-
-        # Base emission rate (can be modified by interventions)
-        emission_rate = self._get_emission_rate()
-
-        # Add natural variability (scaled by atmospheric mass)
-        variability_scale = 0.1 * (self.config.planet.atmospheric_mass_kg / 5.15e18)**0.5
-        natural_variability = torch.randn_like(self.greenhouse_gas) * variability_scale
-
-        return (emission_rate - natural_removal + natural_variability) * self.config.time_step
-
-    def _get_emission_rate(self) -> float:
-        """Get emission rate based on planet type and simulation year."""
-        if self.config.planet.name == "Earth":
-            # Historical Earth emission patterns
-            if self.year < 50:  # Before 1950
-                return 0.4
-            elif self.year < 70:  # 1950-1970
-                return 1.0
-            elif self.year < 90:  # 1970-1990
-                return 1.5
-            elif self.year < 110:  # 1990-2010
-                return 2.2
-            elif self.year < 120:  # 2010-2020
-                return 2.5
-            else:  # After 2020
-                return 2.3
-        else:
-            # For other planets, assume constant natural emissions
-            return 0.1
-
-    def run(self, steps: Optional[int] = None):
-        """Run the simulation for the specified number of steps."""
-        if steps is None:
-            steps = int(self.config.simulation_years / self.config.time_step)
-
-        for _ in range(steps):
-            self.step()
+        # Create latitude and longitude grids
+        self.lat_grid = torch.linspace(-90, 90, self.grid_size).view(-1, 1).expand(self.grid_size, self.grid_size)
+        self.lon_grid = torch.linspace(-180, 180, self.grid_size).view(1, -1).expand(self.grid_size, self.grid_size)
 
     def get_state(self) -> Dict[str, torch.Tensor]:
-        """Get the current state of the simulation."""
+        """Get current simulation state."""
         return {
-            "temperature": self.temperature,
-            "greenhouse_gas": self.greenhouse_gas,
-            "pressure": self.pressure
+            'temperature': self.temperature,
+            'co2_ppm': self.co2,
+            'ocean_ph': self.ocean_ph
         }
+
+    def _calculate_temperature_change(self, interventions: List[Intervention]) -> torch.Tensor:
+        """Calculate temperature change based on CO2 and interventions."""
+        # Base temperature change from CO2 using improved climate sensitivity model
+        co2_change = self.co2 - 280.0  # Change from pre-industrial
+
+        # Updated climate sensitivity with thermal inertia and feedback effects
+        base_sensitivity = 3.0  # Base climate sensitivity
+        feedback_factor = 1.0 + torch.log2(self.co2 / 280.0) * 0.1  # Increased sensitivity at higher CO2
+        climate_sensitivity = base_sensitivity * feedback_factor
+
+        # Ocean thermal inertia varies with depth
+        surface_inertia = 0.2
+        deep_ocean_factor = 0.05
+        thermal_inertia = surface_inertia + deep_ocean_factor * torch.log2(self.co2 / 280.0)
+
+        # Calculate temperature change with thermal inertia
+        target_temp_change = climate_sensitivity * torch.log2(self.co2 / 280.0)
+        current_temp_change = self.temperature - 13.71  # Difference from 1900 baseline
+
+        # Temperature change moves toward target with thermal inertia
+        temp_change = (target_temp_change - current_temp_change) * thermal_inertia
+
+        # Add intervention effects
+        state = self.get_state()
+        for intervention in interventions:
+            if intervention.is_active(self.year):
+                state = intervention.apply(state, self.year, interventions)
+
+        # Add natural variability with reduced magnitude at higher temperatures
+        base_variability = 0.03
+        damping_factor = torch.exp(-current_temp_change / 2.0)
+        natural_variability = torch.randn_like(temp_change) * base_variability * damping_factor
+
+        return (state['temperature'] - self.temperature) + temp_change + natural_variability
+
+    def _calculate_co2_change(self, interventions: List[Intervention]) -> torch.Tensor:
+        """Calculate CO2 change based on emissions and interventions."""
+        # Base CO2 change from historical emissions with feedback effects
+        if self.year < 1950:
+            base_growth = 0.003  # ~0.3% annual growth
+        elif self.year < 1970:
+            base_growth = 0.007  # ~0.7% annual growth
+        elif self.year < 1990:
+            base_growth = 0.012  # ~1.2% annual growth
+        elif self.year < 2010:
+            base_growth = 0.018  # ~1.8% annual growth
+        elif self.year < 2020:
+            base_growth = 0.020  # ~2.0% annual growth
+        else:
+            base_growth = 0.015  # ~1.5% projected growth
+
+        # Add temperature feedback on natural carbon sinks
+        temp_effect = torch.clamp(self.temperature - 13.71, min=0) * 0.001
+        co2_growth = base_growth + temp_effect
+
+        # Calculate base CO2 change from emissions
+        co2_change = self.co2 * co2_growth
+
+        # Natural carbon sinks with saturation
+        base_removal = 0.0015  # Base removal rate (0.15% per year)
+        sink_saturation = torch.exp(-(self.co2 - 280.0) / 800.0)  # Decreasing efficiency at higher CO2
+        natural_removal = self.co2 * base_removal * sink_saturation
+
+        # Net change before interventions
+        net_change = co2_change - natural_removal
+
+        # Add intervention effects
+        state = self.get_state()
+        for intervention in interventions:
+            if intervention.is_active(self.year):
+                new_state = intervention.apply(state, self.year, interventions)
+                # Only apply CO2 changes from interventions
+                net_change = net_change + (new_state['co2_ppm'] - state['co2_ppm'])
+                state = new_state
+
+        return net_change
+
+    def _calculate_ph_change(self, interventions: List[Intervention]) -> torch.Tensor:
+        """Calculate ocean pH change based on CO2 concentration."""
+        # pH change based on CO2 with chemical buffering and temperature effects
+        co2_change = self.co2 - 280.0  # Change from pre-industrial
+
+        # Base pH sensitivity with temperature dependence
+        base_sensitivity = 0.001  # pH units per ppm CO2
+        temp_factor = 1.0 + torch.clamp(self.temperature - 13.71, min=0) * 0.02
+
+        # Chemical buffering (decreases with higher CO2 and temperature)
+        buffer_capacity = torch.exp(-co2_change / 700.0) * torch.exp(-(self.temperature - 13.71) / 10.0)
+        effective_sensitivity = base_sensitivity * temp_factor * buffer_capacity
+
+        ph_change = co2_change * effective_sensitivity
+
+        # Add intervention effects
+        state = self.get_state()
+        for intervention in interventions:
+            if intervention.is_active(self.year):
+                state = intervention.apply(state, self.year, interventions)
+
+        # Reduced natural variability
+        natural_variability = torch.randn_like(ph_change) * 0.0003
+        return (state['ocean_ph'] - self.ocean_ph) + natural_variability
+
+    def step(self, interventions: Optional[List[Intervention]] = None) -> None:
+        """Advance simulation by one time step."""
+        if interventions is None:
+            interventions = []
+
+        # Calculate changes
+        temp_change = self._calculate_temperature_change(interventions)
+        co2_change = self._calculate_co2_change(interventions)
+        ph_change = self._calculate_ph_change(interventions)
+
+        # Update state
+        self.temperature += temp_change * self.time_step
+        self.co2 += co2_change * self.time_step
+        self.ocean_ph += ph_change * self.time_step
+
+        # Update year
+        self.year += 1
+
+    def run_simulation(self, years: np.ndarray, interventions: List[Intervention]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Run simulation for given years with interventions."""
+        temps = []
+        co2s = []
+        phs = []
+
+        for year in years:
+            self.step(interventions)
+            temps.append(self.temperature.mean().item())
+            co2s.append(self.co2.mean().item())
+            phs.append(self.ocean_ph.mean().item())
+
+        return np.array(temps), np.array(co2s), np.array(phs)
 
     def save_config(self, path: str):
         """Save the simulation configuration to a YAML file."""
+        # Create output directory with timestamp if not provided
+        if not os.path.isabs(path):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = os.path.join("outputs", f"simulation_{timestamp}")
+            os.makedirs(output_dir, exist_ok=True)
+            path = os.path.join(output_dir, "config.yaml")
+
         config_dict = {
-            "grid_size": self.config.grid_size,
-            "time_step": self.config.time_step,
-            "simulation_years": self.config.simulation_years,
-            "initial_temperature": self.config.planet.initial_surface_temp_celsius,
-            "initial_greenhouse_gas_ppm": self.config.planet.initial_greenhouse_gas_ppm,
-            "initial_atmospheric_pressure_kpa": self.config.planet.initial_atmospheric_pressure_kpa,
-            "interventions": self.interventions
+            "grid_size": self.grid_size,
+            "time_step": self.time_step,
+            "simulation_years": self.simulation_years,
+            "initial_temperature": self.temperature.mean().item(),
+            "initial_co2_ppm": self.co2.mean().item(),
+            "initial_ocean_ph": self.ocean_ph.mean().item(),
+            "interventions": [intervention.__dict__ for intervention in interventions]
         }
 
         with open(path, 'w') as f:
@@ -294,9 +333,7 @@ class ClimateSimulator:
 
         simulator = cls(config)
         for intervention in config_dict.get("interventions", []):
-            simulator.add_intervention(
-                intervention["type"],
-                intervention["parameters"]
-            )
+            intervention_obj = Intervention(**intervention)
+            simulator.add_intervention(intervention_obj)
 
         return simulator

@@ -3,6 +3,7 @@ import numpy as np
 from cli_sim.core.simulator import ClimateSimulator, SimulationConfig
 from cli_sim.visualization.visualizer import ClimateVisualizer
 from cli_sim.interventions.interventions import InterventionManager
+from cli_sim.core.output_manager import OutputManager
 import matplotlib.pyplot as plt
 from datetime import datetime
 
@@ -78,8 +79,11 @@ def run_historical_simulation():
         }
     )
 
+    # Initialize the output manager
+    output_manager = OutputManager("historical_simulation")
+
     # Initialize the visualizer
-    visualizer = ClimateVisualizer(simulator)
+    visualizer = ClimateVisualizer(simulator, output_manager)
 
     # Create arrays to store historical data
     time_points = []
@@ -150,13 +154,13 @@ def run_historical_simulation():
                 'temperature',
                 f'Global Temperature in {year:.0f}'
             )
-            fig_temp.savefig(f'historical_temperature_{year:.0f}.png')
+            fig_temp.savefig(output_manager.get_path(f'historical_temperature_{year:.0f}.png'))
 
             fig_co2 = visualizer.plot_global_map(
                 'co2_ppm',
                 f'Global CO2 Concentration in {year:.0f}'
             )
-            fig_co2.savefig(f'historical_co2_{year:.0f}.png')
+            fig_co2.savefig(output_manager.get_path(f'historical_co2_{year:.0f}.png'))
 
     print("Historical simulation complete!")
 
@@ -192,12 +196,14 @@ def run_historical_simulation():
     ax3.legend()
 
     plt.tight_layout()
-    plt.savefig('historical_global_trends.png')
+    plt.savefig(output_manager.get_path('historical_global_trends.png'))
 
     # Plot intervention effects
     fig_interventions = visualizer.plot_intervention_effects()
     if fig_interventions:
-        fig_interventions.savefig('historical_intervention_effects.png')
+        fig_interventions.savefig(output_manager.get_path('historical_intervention_effects.png'))
+
+    print(f"Simulation outputs saved to: {output_manager.get_directory()}")
 
 if __name__ == '__main__':
     run_historical_simulation()

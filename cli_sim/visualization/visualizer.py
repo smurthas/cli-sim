@@ -5,11 +5,13 @@ import plotly.graph_objects as go
 from typing import Dict, Optional, List
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+from cli_sim.core.output_manager import OutputManager
 
 class ClimateVisualizer:
-    def __init__(self, simulator):
+    def __init__(self, simulator, output_manager: OutputManager):
         """Initialize the climate visualizer."""
         self.simulator = simulator
+        self.output_manager = output_manager
         self.fig = None
         self.ax = None
 

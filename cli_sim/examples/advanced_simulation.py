@@ -3,6 +3,7 @@ import numpy as np
 from cli_sim.core.simulator import ClimateSimulator, SimulationConfig
 from cli_sim.visualization.visualizer import ClimateVisualizer
 from cli_sim.interventions.interventions import InterventionManager
+from cli_sim.core.output_manager import OutputManager
 
 def run_advanced_simulation():
     # Create a high-resolution configuration
@@ -75,8 +76,11 @@ def run_advanced_simulation():
         }
     )
 
+    # Initialize the output manager
+    output_manager = OutputManager("advanced_simulation")
+
     # Initialize the visualizer
-    visualizer = ClimateVisualizer(simulator)
+    visualizer = ClimateVisualizer(simulator, output_manager)
 
     # Create arrays to store historical data
     time_points = []
@@ -121,26 +125,26 @@ def run_advanced_simulation():
                 'temperature',
                 f'Global Temperature at year {current_time:.1f}'
             )
-            fig_temp.savefig(f'advanced_temperature_{step}.png')
+            fig_temp.savefig(output_manager.get_path(f'advanced_temperature_{step}.png'))
 
             fig_co2 = visualizer.plot_global_map(
                 'co2_ppm',
                 f'Global CO2 Concentration at year {current_time:.1f}'
             )
-            fig_co2.savefig(f'advanced_co2_{step}.png')
+            fig_co2.savefig(output_manager.get_path(f'advanced_co2_{step}.png'))
 
             # Create interactive plot with all variables
             fig_interactive = visualizer.create_interactive_plot(
                 ['temperature', 'co2_ppm', 'ocean_ph']
             )
-            fig_interactive.write_html(f'advanced_climate_state_{step}.html')
+            fig_interactive.write_html(output_manager.get_path(f'advanced_climate_state_{step}.html'))
 
     print("Advanced simulation complete!")
 
     # Plot intervention effects
     fig_interventions = visualizer.plot_intervention_effects()
     if fig_interventions:
-        fig_interventions.savefig('advanced_intervention_effects.png')
+        fig_interventions.savefig(output_manager.get_path('advanced_intervention_effects.png'))
 
     # Plot time series of global variables
     import matplotlib.pyplot as plt
@@ -167,7 +171,9 @@ def run_advanced_simulation():
     ax3.grid(True)
 
     plt.tight_layout()
-    plt.savefig('advanced_global_trends.png')
+    plt.savefig(output_manager.get_path('advanced_global_trends.png'))
+
+    print(f"Simulation outputs saved to: {output_manager.get_directory()}")
 
 if __name__ == '__main__':
     run_advanced_simulation()

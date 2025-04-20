@@ -2,6 +2,7 @@ import torch
 from cli_sim.core.simulator import ClimateSimulator, SimulationConfig
 from cli_sim.visualization.visualizer import ClimateVisualizer
 from cli_sim.interventions.interventions import InterventionManager
+from cli_sim.core.output_manager import OutputManager
 
 def run_basic_simulation():
     # Create a custom configuration
@@ -39,8 +40,11 @@ def run_basic_simulation():
         }
     )
 
+    # Initialize the output manager
+    output_manager = OutputManager("basic_simulation")
+
     # Initialize the visualizer
-    visualizer = ClimateVisualizer(simulator)
+    visualizer = ClimateVisualizer(simulator, output_manager)
 
     # Run the simulation
     print("Starting simulation...")
@@ -63,21 +67,23 @@ def run_basic_simulation():
         if step % 10 == 0:
             # Create and save visualizations
             fig_temp = visualizer.plot_global_map('temperature', f'Temperature at year {step * config.time_step:.1f}')
-            fig_temp.savefig(f'temperature_{step}.png')
+            fig_temp.savefig(output_manager.get_path(f'temperature_{step}.png'))
 
             fig_co2 = visualizer.plot_global_map('co2_ppm', f'CO2 Concentration at year {step * config.time_step:.1f}')
-            fig_co2.savefig(f'co2_{step}.png')
+            fig_co2.savefig(output_manager.get_path(f'co2_{step}.png'))
 
             # Create interactive plot
             fig_interactive = visualizer.create_interactive_plot()
-            fig_interactive.write_html(f'climate_state_{step}.html')
+            fig_interactive.write_html(output_manager.get_path(f'climate_state_{step}.html'))
 
     print("Simulation complete!")
 
     # Plot intervention effects
     fig_interventions = visualizer.plot_intervention_effects()
     if fig_interventions:
-        fig_interventions.savefig('intervention_effects.png')
+        fig_interventions.savefig(output_manager.get_path('intervention_effects.png'))
+
+    print(f"Simulation outputs saved to: {output_manager.get_directory()}")
 
 if __name__ == '__main__':
     run_basic_simulation()
